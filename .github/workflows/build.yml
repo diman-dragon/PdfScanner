@@ -1,0 +1,44 @@
+name: Build debug APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Build
+        run: gradle assembleDebug --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PdfScanner-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      # На main/master APK дополнительно публикуется в релиз "latest":
+      # его можно скачать с телефона прямо со страницы Releases, без zip.
+      - name: Publish to "latest" release
+        if: contains(fromJSON('["refs/heads/main","refs/heads/master"]'), github.ref)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest app/build/outputs/apk/debug/app-debug.apk \
+            --prerelease --title "Debug build" \
+            --notes "Коммит ${GITHUB_SHA::7}" --target "$GITHUB_SHA"

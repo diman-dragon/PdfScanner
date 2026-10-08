@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PDF Сканер</string>
+    <!-- Ссылка на политику конфиденциальности (см. docs/PUBLISHING.md).
+         Пока пусто — пункт в настройках скрыт. -->
+    <string name="privacy_policy_url" translatable="false"></string>
+</resources>
