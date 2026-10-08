@@ -1,4 +1,4 @@
-# PDF Сканер 2.0.0
+# PDF Сканер 2.0.1
 
 Android-приложение: сканирование документов в PDF.
 Kotlin + Jetpack Compose + Material 3 + Room. minSdk 26.

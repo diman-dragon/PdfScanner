@@ -53,7 +53,7 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     val ocrLangs: StateFlow<String> = settings.ocrLangs
     val batchDelay: StateFlow<Int> = settings.batchDelay
 
-    /** Языки, для которых в приложение вложены модели (assets/tessdata/*.traineddata). */
+    /** Языки, для которых в приложение вложены модели (файлы .traineddata в assets/tessdata). */
     val availableOcrLanguages: List<String> = runCatching {
         app.assets.list("tessdata").orEmpty()
             .filter { it.endsWith(".traineddata") }
