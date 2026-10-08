@@ -112,6 +112,7 @@ fun PageEditorScreen(id: String, vm: MainViewModel, onBack: () -> Unit) {
     }
 
     val startScan = rememberScanStarter(
+        pageLimit = 30,
         onResult = { result ->
             val uris = result.pages?.map { it.imageUri }.orEmpty()
             if (uris.isNotEmpty()) {

@@ -42,7 +42,18 @@ fun App(vm: MainViewModel = viewModel()) {
             )
         }
         composable("settings") {
-            SettingsScreen(vm = vm, onBack = { nav.popBackStack() })
+            SettingsScreen(
+                vm = vm,
+                onBack = { nav.popBackStack() },
+                onOpenApp = { nav.navigate("settings/app") },
+                onOpenScan = { nav.navigate("settings/scan") },
+            )
+        }
+        composable("settings/app") {
+            AppSettingsScreen(vm = vm, onBack = { nav.popBackStack() })
+        }
+        composable("settings/scan") {
+            ScanSettingsScreen(vm = vm, onBack = { nav.popBackStack() })
         }
     }
 }

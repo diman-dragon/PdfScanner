@@ -34,8 +34,12 @@ sealed interface UiEvent {
     data object LaunchScanner : UiEvent
 }
 
-/** Пакетное сканирование: pages — сколько страниц уже набрано, countdown — секунд до следующей (null: идёт сканирование). */
-data class BatchState(val pages: Int, val countdown: Int?)
+/**
+ * Пакетное сканирование. pages: сколько страниц набрано, countdown: секунд до следующей страницы,
+ * total: длина текущей паузы, paused: сканер закрыт вручную, ждём решения пользователя.
+ * countdown == null и paused == false: сканер открыт.
+ */
+data class BatchState(val pages: Int, val countdown: Int?, val total: Int, val paused: Boolean)
 
 class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     private val repo = DocumentRepository(app, AppDatabase.get(app).documentDao())
@@ -95,23 +99,33 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
 
     // ---------------- Сканирование ----------------
 
+    /** Пакетный режим: страницы копятся в одном документе, пока пользователь не нажмёт «Завершить». */
+    fun startBatch() {
+        countdownJob?.cancel()
+        batchDir?.deleteRecursively()
+        batchDir = null
+        _batch.value = BatchState(pages = 0, countdown = null, total = settings.batchDelay.value, paused = false)
+    }
+
     fun onScanResult(result: GmsDocumentScanningResult?) {
         val pages = result?.pages?.map { it.imageUri }.orEmpty()
         val pdf = result?.pdf
-        if (pages.isEmpty() && pdf == null) {
-            _events.trySend(UiEvent.Message("Сканер не вернул страницы. Попробуйте ещё раз."))
+
+        if (_batch.value != null) {
+            if (pages.isEmpty()) onScanCancelled() else addToBatch(pages)
             return
         }
-        val delaySeconds = settings.batchDelay.value
-        if (pages.isNotEmpty() && (delaySeconds > 0 || _batch.value != null)) {
-            addToBatch(pages, delaySeconds.coerceAtLeast(1))
+
+        // Одиночный скан: всегда одна страница = один документ.
+        if (pages.isEmpty() && pdf == null) {
+            _events.trySend(UiEvent.Message("Сканер не вернул страницу. Попробуйте ещё раз."))
             return
         }
         viewModelScope.launch {
             _progress.value = Progress("Подготовка…", null)
             try {
                 val doc = if (pages.isNotEmpty()) {
-                    repo.importScan(pages, settings.filter.value, ocrLanguagesOrNull()) { _progress.value = it }
+                    repo.importScan(pages.take(1), settings.filter.value, ocrLanguagesOrNull()) { _progress.value = it }
                 } else {
                     repo.import(pdf!!.uri, null, pdf.pageCount)
                 }
@@ -125,21 +139,30 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Пользователь закрыл сканер без результата: в пакетном режиме это конец серии. */
+    /** Сканер закрыт без результата. В пакетном режиме это пауза: можно продолжить или завершить. */
     fun onScanCancelled() {
-        if (_batch.value != null) finishBatch()
+        val state = _batch.value ?: return
+        countdownJob?.cancel()
+        if (state.pages == 0) {
+            batchDir?.deleteRecursively()
+            batchDir = null
+            _batch.value = null
+        } else {
+            _batch.value = state.copy(countdown = null, paused = true)
+        }
     }
 
-    private fun addToBatch(pages: List<Uri>, delaySeconds: Int) {
+    private fun addToBatch(pages: List<Uri>) {
         countdownJob?.cancel()
         viewModelScope.launch {
             try {
                 val dir = batchDir ?: repo.newDraftDir().also { batchDir = it }
                 val total = repo.addToDraft(dir, pages)
-                _batch.value = BatchState(total, null)
+                val delaySeconds = settings.batchDelay.value
+                _batch.value = BatchState(total, null, delaySeconds, false)
                 startCountdown(delaySeconds)
             } catch (e: Exception) {
-                _events.send(UiEvent.Message("Не удалось сохранить страницы. Проверьте свободное место."))
+                _events.send(UiEvent.Message("Не удалось сохранить страницу. Проверьте свободное место."))
                 finishBatch()
             }
         }
@@ -149,19 +172,19 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
         countdownJob?.cancel()
         countdownJob = viewModelScope.launch {
             for (left in seconds downTo 1) {
-                _batch.value = _batch.value?.copy(countdown = left)
+                _batch.value = _batch.value?.copy(countdown = left, total = seconds, paused = false)
                 delay(1_000)
             }
-            _batch.value = _batch.value?.copy(countdown = null)
+            _batch.value = _batch.value?.copy(countdown = null, paused = false)
             _events.send(UiEvent.LaunchScanner)
         }
     }
 
-    /** «Сканировать сейчас»: не ждать конца паузы. */
+    /** «Сканировать сейчас» / «Продолжить»: открыть сканер, не дожидаясь конца паузы. */
     fun nextNow() {
-        if (_batch.value == null) return
+        val state = _batch.value ?: return
         countdownJob?.cancel()
-        _batch.value = _batch.value?.copy(countdown = null)
+        _batch.value = state.copy(countdown = null, paused = false)
         _events.trySend(UiEvent.LaunchScanner)
     }
 

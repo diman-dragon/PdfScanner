@@ -36,12 +36,12 @@ class SettingsRepository(context: Context) {
     private val _ocrLangs = MutableStateFlow(prefs.getString(KEY_LANGS, null) ?: "rus+eng")
     val ocrLangs: StateFlow<String> = _ocrLangs.asStateFlow()
 
-    /** Пауза до следующей страницы в пакетном режиме, секунды. 0 = пакетный режим выключен. */
-    private val _batchDelay = MutableStateFlow(prefs.getInt(KEY_BATCH, 3).coerceIn(0, 30))
+    /** Пауза до следующей страницы в пакетном режиме, секунды (по умолчанию 5). */
+    private val _batchDelay = MutableStateFlow(prefs.getInt(KEY_BATCH, 5).coerceIn(1, 30))
     val batchDelay: StateFlow<Int> = _batchDelay.asStateFlow()
 
     fun setBatchDelay(seconds: Int) {
-        val value = seconds.coerceIn(0, 30)
+        val value = seconds.coerceIn(1, 30)
         prefs.edit().putInt(KEY_BATCH, value).apply()
         _batchDelay.value = value
     }
@@ -83,6 +83,6 @@ class SettingsRepository(context: Context) {
         const val KEY_FILTER = "filter"
         const val KEY_OCR = "ocr_enabled"
         const val KEY_LANGS = "ocr_langs"
-        const val KEY_BATCH = "batch_delay"
+        const val KEY_BATCH = "batch_delay_s"
     }
 }

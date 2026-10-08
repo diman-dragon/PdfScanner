@@ -14,11 +14,12 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 
 /**
- * Возвращает функцию «открыть сканер Google». Результат приходит в onResult,
+ * Возвращает функцию «открыть сканер Google» (по умолчанию одна страница за запуск). Результат приходит в onResult,
  * закрытие сканера без результата в onCancelled, недоступность сервисов в onError.
  */
 @Composable
 fun rememberScanStarter(
+    pageLimit: Int = 1,
     onResult: (GmsDocumentScanningResult) -> Unit,
     onCancelled: () -> Unit,
     onError: (String) -> Unit,
@@ -28,11 +29,11 @@ fun rememberScanStarter(
     val currentCancelled by rememberUpdatedState(onCancelled)
     val currentError by rememberUpdatedState(onError)
 
-    val scanner = remember {
+    val scanner = remember(pageLimit) {
         GmsDocumentScanning.getClient(
             GmsDocumentScannerOptions.Builder()
                 .setGalleryImportAllowed(true)
-                .setPageLimit(30)
+                .setPageLimit(pageLimit)
                 .setResultFormats(
                     GmsDocumentScannerOptions.RESULT_FORMAT_PDF,
                     GmsDocumentScannerOptions.RESULT_FORMAT_JPEG,
