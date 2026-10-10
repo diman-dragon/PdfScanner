@@ -248,7 +248,7 @@ fun CameraScreen(vm: MainViewModel, batch: Boolean, appendId: String?, onClose: 
                     FilterChip(
                         selected = session.borderMode == BorderMode.AUTO,
                         onClick = {
-                            session.setBorderMode(BorderMode.AUTO)
+                            session.changeBorderMode(BorderMode.AUTO)
                             vm.setBorderMode(BorderMode.AUTO)
                         },
                         label = { Text("Авто") },
@@ -257,7 +257,7 @@ fun CameraScreen(vm: MainViewModel, batch: Boolean, appendId: String?, onClose: 
                     FilterChip(
                         selected = session.borderMode == BorderMode.MANUAL,
                         onClick = {
-                            session.setBorderMode(BorderMode.MANUAL)
+                            session.changeBorderMode(BorderMode.MANUAL)
                             vm.setBorderMode(BorderMode.MANUAL)
                         },
                         label = { Text("Свои границы") },

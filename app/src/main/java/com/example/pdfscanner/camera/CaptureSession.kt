@@ -98,7 +98,7 @@ class CaptureSession(
     private var lastQuad: List<Pt>? = null
     private var stableCount = 0
 
-    fun setBorderMode(mode: BorderMode) {
+    fun changeBorderMode(mode: BorderMode) {
         borderMode = mode
         resetStability()
         liveQuad = if (mode == BorderMode.MANUAL) manualQuad else null
