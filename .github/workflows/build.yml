@@ -46,14 +46,21 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
-      # На main/master APK дополнительно публикуется в релиз "latest":
-      # его можно скачать с телефона прямо со страницы Releases, без zip.
+      # На main/master APK дополнительно кладётся в релиз "latest" (прямая ссылка, удобно с телефона).
+      # Тег latest создаётся один раз и больше НЕ пересоздаётся: раньше он каждый раз удалялся и
+      # создавался заново на новом коммите, из-за чего git fetch/pull ругался на конфликт тегов.
+      # Теперь обновляется только файл и описание релиза.
       - name: Publish to "latest" release
         if: contains(fromJSON('["refs/heads/main","refs/heads/master"]'), github.ref)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete latest --yes --cleanup-tag || true
-          gh release create latest app/build/outputs/apk/debug/app-debug.apk \
-            --prerelease --title "Debug build" \
-            --notes "Коммит ${GITHUB_SHA::7}" --target "$GITHUB_SHA"
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          NOTES="Коммит ${GITHUB_SHA::7}. Сборка №${GITHUB_RUN_NUMBER}"
+          if gh release view latest >/dev/null 2>&1; then
+            gh release upload latest "$APK" --clobber
+            gh release edit latest --notes "$NOTES"
+          else
+            gh release create latest "$APK" --prerelease --title "Debug build" \
+              --notes "$NOTES" --target "$GITHUB_SHA"
+          fi

@@ -1,4 +1,4 @@
-# PDF Сканер 2.0.0
+# PDF Сканер 2.0.1
 
 Android-приложение: сканирование документов в PDF.
 Kotlin + Jetpack Compose + Material 3 + Room. minSdk 26.
@@ -26,3 +26,11 @@ Debug-ключ лежит в репозитории текстом (`app/debug-k
 ## Публикация
 См. `docs/PUBLISHING.md`, шаблон политики конфиденциальности в `docs/PRIVACY_POLICY.md`,
 лицензии компонентов и добавление языков OCR в `docs/THIRD_PARTY_LICENSES.md`.
+
+## Если git ругается на конфликт тегов (latest)
+Старые версии workflow каждый раз пересоздавали тег `latest`. Один раз выполните локально:
+```
+git tag -d latest
+git pull
+```
+(или `git fetch --tags --force`). Дальше тег больше не меняется.
