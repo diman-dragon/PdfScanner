@@ -140,7 +140,31 @@ class DocumentRepository(
         }
     }
 
-    // ---- Черновик пакетного сканирования: страницы копятся, пока пользователь не нажмёт «Завершить» ----
+    /** Дописывает снятые страницы в конец существующего документа и пересобирает PDF. */
+    suspend fun appendPages(
+        doc: DocumentEntity,
+        files: List<File>,
+        filter: FilterMode,
+        languages: String?,
+        onProgress: (Progress) -> Unit,
+    ): DocumentEntity {
+        val origDir = doc.origDir?.let { File(it) }?.takeIf { it.isDirectory }
+            ?: throw IllegalStateException("Исходные страницы этого документа недоступны")
+        val staging = File(dir("orig"), "${doc.id}_new")
+        withContext(Dispatchers.IO) {
+            staging.deleteRecursively()
+            staging.mkdirs()
+            var n = 0
+            origDir.listFiles { f -> f.extension.equals("jpg", ignoreCase = true) }
+                ?.sortedBy { it.name }
+                .orEmpty()
+                .forEach { it.copyTo(File(staging, "page_%03d.jpg".format(n++)), overwrite = true) }
+            files.forEach { it.copyTo(File(staging, "page_%03d.jpg".format(n++)), overwrite = true) }
+        }
+        return reprocess(doc, filter, languages, onProgress, staging)
+    }
+
+    // ---- Черновик съёмки: страницы лежат в папке, пока пользователь не нажмёт «Готово» ----
 
     fun newDraftDir(): File = File(File(context.filesDir, "draft").apply { mkdirs() }, UUID.randomUUID().toString())
         .apply { mkdirs() }

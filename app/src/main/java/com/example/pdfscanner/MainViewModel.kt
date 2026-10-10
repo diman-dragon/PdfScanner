@@ -6,22 +6,21 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.pdfscanner.data.AppDatabase
+import com.example.pdfscanner.data.BorderMode
 import com.example.pdfscanner.data.DocumentEntity
 import com.example.pdfscanner.data.DocumentRepository
 import com.example.pdfscanner.data.Progress
 import com.example.pdfscanner.data.SettingsRepository
 import com.example.pdfscanner.data.ThemeMode
 import com.example.pdfscanner.processing.FilterMode
-import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -30,16 +29,7 @@ import java.io.File
 sealed interface UiEvent {
     data class Message(val text: String) : UiEvent
     data class Opened(val id: String) : UiEvent
-    /** Пакетный режим: пора открыть сканер для следующей страницы. */
-    data object LaunchScanner : UiEvent
 }
-
-/**
- * Пакетное сканирование. pages: сколько страниц набрано, countdown: секунд до следующей страницы,
- * total: длина текущей паузы, paused: сканер закрыт вручную, ждём решения пользователя.
- * countdown == null и paused == false: сканер открыт.
- */
-data class BatchState(val pages: Int, val countdown: Int?, val total: Int, val paused: Boolean)
 
 class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     private val repo = DocumentRepository(app, AppDatabase.get(app).documentDao())
@@ -56,6 +46,8 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     val ocrEnabled: StateFlow<Boolean> = settings.ocrEnabled
     val ocrLangs: StateFlow<String> = settings.ocrLangs
     val batchDelay: StateFlow<Int> = settings.batchDelay
+    val borderMode: StateFlow<BorderMode> = settings.borderMode
+    val autoCapture: StateFlow<Boolean> = settings.autoCapture
 
     /** Языки, для которых в приложение вложены модели (файлы .traineddata в assets/tessdata). */
     val availableOcrLanguages: List<String> = runCatching {
@@ -68,12 +60,7 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     private val _progress = MutableStateFlow<Progress?>(null)
     val progress: StateFlow<Progress?> = _progress.asStateFlow()
 
-    private val _batch = MutableStateFlow<BatchState?>(null)
-    val batch: StateFlow<BatchState?> = _batch.asStateFlow()
-    private var batchDir: File? = null
-    private var countdownJob: Job? = null
-
-    /** События главного экрана (открыть документ, запустить сканер). */
+    /** События главного экрана (открыть документ, сообщение). */
     private val _events = Channel<UiEvent>(Channel.BUFFERED)
     val events = _events.receiveAsFlow()
 
@@ -82,7 +69,7 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     val notices = _notices.receiveAsFlow()
 
     init {
-        // Черновики пакетного режима не переживают перезапуск процесса, чистим остатки.
+        // Черновики съёмки не переживают перезапуск процесса, чистим остатки.
         viewModelScope.launch(Dispatchers.IO) { repo.clearDrafts() }
     }
 
@@ -97,107 +84,22 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
             .joinToString("+")
     }
 
-    // ---------------- Сканирование ----------------
+    // ---------------- Съёмка и импорт ----------------
 
-    /** Пакетный режим: страницы копятся в одном документе, пока пользователь не нажмёт «Завершить». */
-    fun startBatch() {
-        countdownJob?.cancel()
-        batchDir?.deleteRecursively()
-        batchDir = null
-        _batch.value = BatchState(pages = 0, countdown = null, total = settings.batchDelay.value, paused = false)
+    fun newDraftDir(): File = repo.newDraftDir()
+
+    fun discardDraft(dir: File) {
+        viewModelScope.launch(Dispatchers.IO) { dir.deleteRecursively() }
     }
 
-    fun onScanResult(result: GmsDocumentScanningResult?) {
-        val pages = result?.pages?.map { it.imageUri }.orEmpty()
-        val pdf = result?.pdf
-
-        if (_batch.value != null) {
-            if (pages.isEmpty()) onScanCancelled() else addToBatch(pages)
-            return
-        }
-
-        // Одиночный скан: всегда одна страница = один документ.
-        if (pages.isEmpty() && pdf == null) {
-            _events.trySend(UiEvent.Message("Сканер не вернул страницу. Попробуйте ещё раз."))
-            return
-        }
-        viewModelScope.launch {
-            _progress.value = Progress("Подготовка…", null)
-            try {
-                val doc = if (pages.isNotEmpty()) {
-                    repo.importScan(pages.take(1), settings.filter.value, ocrLanguagesOrNull()) { _progress.value = it }
-                } else {
-                    repo.import(pdf!!.uri, null, pdf.pageCount)
-                }
-                _events.send(UiEvent.Opened(doc.id))
-            } catch (e: Throwable) {
-                if (e is CancellationException) throw e
-                _events.send(UiEvent.Message("Не удалось обработать документ. Проверьте свободное место и попробуйте ещё раз."))
-            } finally {
-                _progress.value = null
-            }
-        }
-    }
-
-    /** Сканер закрыт без результата. В пакетном режиме это пауза: можно продолжить или завершить. */
-    fun onScanCancelled() {
-        val state = _batch.value ?: return
-        countdownJob?.cancel()
-        if (state.pages == 0) {
-            batchDir?.deleteRecursively()
-            batchDir = null
-            _batch.value = null
-        } else {
-            _batch.value = state.copy(countdown = null, paused = true)
-        }
-    }
-
-    private fun addToBatch(pages: List<Uri>) {
-        countdownJob?.cancel()
-        viewModelScope.launch {
-            try {
-                val dir = batchDir ?: repo.newDraftDir().also { batchDir = it }
-                val total = repo.addToDraft(dir, pages)
-                val delaySeconds = settings.batchDelay.value
-                _batch.value = BatchState(total, null, delaySeconds, false)
-                startCountdown(delaySeconds)
-            } catch (e: Exception) {
-                _events.send(UiEvent.Message("Не удалось сохранить страницу. Проверьте свободное место."))
-                finishBatch()
-            }
-        }
-    }
-
-    private fun startCountdown(seconds: Int) {
-        countdownJob?.cancel()
-        countdownJob = viewModelScope.launch {
-            for (left in seconds downTo 1) {
-                _batch.value = _batch.value?.copy(countdown = left, total = seconds, paused = false)
-                delay(1_000)
-            }
-            _batch.value = _batch.value?.copy(countdown = null, paused = false)
-            _events.send(UiEvent.LaunchScanner)
-        }
-    }
-
-    /** «Сканировать сейчас» / «Продолжить»: открыть сканер, не дожидаясь конца паузы. */
-    fun nextNow() {
-        val state = _batch.value ?: return
-        countdownJob?.cancel()
-        _batch.value = state.copy(countdown = null, paused = false)
-        _events.trySend(UiEvent.LaunchScanner)
-    }
-
-    /** Завершить серию: обработать накопленные страницы и сохранить один документ. */
-    fun finishBatch() {
-        countdownJob?.cancel()
-        countdownJob = null
-        val dir = batchDir
-        batchDir = null
-        _batch.value = null
-        if (dir == null) return
-        val files = dir.listFiles { f -> f.extension.equals("jpg", ignoreCase = true) }
-            ?.sortedBy { it.name }.orEmpty()
+    /**
+     * Страницы из камеры (папка с page_*.jpg): создаём новый документ или, если задан appendId,
+     * дописываем страницы в существующий.
+     */
+    fun importCaptured(dir: File, appendId: String?) {
+        val files = dir.listFiles { f ->
+            f.isFile && f.name.startsWith("page_") && f.extension.equals("jpg", ignoreCase = true)
+        }?.sortedBy { it.name }.orEmpty()
         if (files.isEmpty()) {
             dir.deleteRecursively()
             return
@@ -205,18 +107,50 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _progress.value = Progress("Подготовка…", null)
             try {
-                val doc = repo.importScan(
-                    files.map { Uri.fromFile(it) },
-                    settings.filter.value,
-                    ocrLanguagesOrNull(),
-                ) { _progress.value = it }
-                _events.send(UiEvent.Opened(doc.id))
+                if (appendId == null) {
+                    val doc = repo.importScan(
+                        files.map { Uri.fromFile(it) },
+                        settings.filter.value,
+                        ocrLanguagesOrNull(),
+                    ) { _progress.value = it }
+                    _events.send(UiEvent.Opened(doc.id))
+                } else {
+                    val current = repo.document(appendId).first()
+                        ?: throw IllegalStateException("Документ не найден")
+                    val filter = runCatching { FilterMode.valueOf(current.filterMode.orEmpty()) }
+                        .getOrDefault(settings.filter.value)
+                    repo.appendPages(
+                        current,
+                        files,
+                        filter,
+                        ocrLanguagesOrNull(current.hasText || settings.ocrEnabled.value),
+                    ) { _progress.value = it }
+                    _notices.send("Страницы добавлены")
+                }
             } catch (e: Throwable) {
                 if (e is CancellationException) throw e
-                _events.send(UiEvent.Message("Не удалось обработать документ. Проверьте свободное место и попробуйте ещё раз."))
+                val text = "Не удалось обработать страницы. Проверьте свободное место и попробуйте ещё раз."
+                if (appendId == null) _events.send(UiEvent.Message(text)) else _notices.send(text)
             } finally {
                 _progress.value = null
                 dir.deleteRecursively()
+            }
+        }
+    }
+
+    /** Импорт готовых снимков из галереи: все выбранные картинки становятся страницами одного документа. */
+    fun importUris(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            _progress.value = Progress("Подготовка…", null)
+            try {
+                val doc = repo.importScan(uris, settings.filter.value, ocrLanguagesOrNull()) { _progress.value = it }
+                _events.send(UiEvent.Opened(doc.id))
+            } catch (e: Throwable) {
+                if (e is CancellationException) throw e
+                _events.send(UiEvent.Message("Не удалось импортировать изображения."))
+            } finally {
+                _progress.value = null
             }
         }
     }
@@ -318,6 +252,8 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     fun setFilter(mode: FilterMode) = settings.setFilter(mode)
     fun setOcrEnabled(enabled: Boolean) = settings.setOcrEnabled(enabled)
     fun setBatchDelay(seconds: Int) = settings.setBatchDelay(seconds)
+    fun setBorderMode(mode: BorderMode) = settings.setBorderMode(mode)
+    fun setAutoCapture(enabled: Boolean) = settings.setAutoCapture(enabled)
     fun setOcrLanguages(codes: Set<String>) {
         if (codes.isNotEmpty()) settings.setOcrLangs(codes.sorted().joinToString("+"))
     }

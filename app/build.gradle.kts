@@ -9,6 +9,14 @@ plugins {
 // Локально и в debug-сборках используются значения по умолчанию.
 val releaseKeystorePath: String? = System.getenv("RELEASE_KEYSTORE_PATH")
 
+// Ключ debug-подписи хранится в репозитории ТЕКСТОМ (debug-keystore.b64), а не бинарным файлом:
+// шаблонный .gitignore для Android игнорирует *.keystore, из-за чего каждая сборка в CI получала
+// новый случайный ключ, и Android отказывался ставить APK поверх старого.
+val debugKeystoreFile: File = layout.buildDirectory.file("signing/debug.keystore").get().asFile.also { target ->
+    target.parentFile.mkdirs()
+    target.writeBytes(java.util.Base64.getMimeDecoder().decode(file("debug-keystore.b64").readText()))
+}
+
 android {
     namespace = "com.example.pdfscanner"
     compileSdk = 35
@@ -17,8 +25,8 @@ android {
         applicationId = "com.example.pdfscanner"
         minSdk = 26
         targetSdk = 35
-        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 4
-        versionName = System.getenv("VERSION_NAME") ?: "2.0.2"
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 7
+        versionName = System.getenv("VERSION_NAME") ?: "2.0.0"
 
         // Нативные библиотеки OCR только для реальных телефонов: APK заметно меньше.
         ndk {
@@ -29,7 +37,7 @@ android {
     signingConfigs {
         // Фиксированный debug-ключ: новый APK ставится поверх старого.
         getByName("debug") {
-            storeFile = file("debug.keystore")
+            storeFile = debugKeystoreFile
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
@@ -98,8 +106,12 @@ dependencies {
 
     implementation("com.google.android.material:material:1.12.0")
 
-    // Сканер документов Google (камера, обрезка, перспектива, фильтры, PDF)
-    implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0")
+    // Собственная камера (съёмка, предпросмотр, анализ кадров для поиска границ документа)
+    val cameraX = "1.3.4"
+    implementation("androidx.camera:camera-core:$cameraX")
+    implementation("androidx.camera:camera-camera2:$cameraX")
+    implementation("androidx.camera:camera-lifecycle:$cameraX")
+    implementation("androidx.camera:camera-view:$cameraX")
 
     // Работа с PDF: объединение без потери качества, сборка PDF с текстовым слоем
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")

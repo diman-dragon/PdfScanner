@@ -8,6 +8,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.pdfscanner.MainViewModel
+import com.example.pdfscanner.camera.CameraScreen
 
 @Composable
 fun App(vm: MainViewModel = viewModel()) {
@@ -18,6 +19,7 @@ fun App(vm: MainViewModel = viewModel()) {
                 vm = vm,
                 onOpen = { id -> nav.navigate("doc/$id") },
                 onSettings = { nav.navigate("settings") },
+                onCamera = { batch -> nav.navigate(if (batch) "camera/batch" else "camera/single") },
             )
         }
         composable(
@@ -29,6 +31,24 @@ fun App(vm: MainViewModel = viewModel()) {
                 vm = vm,
                 onBack = { nav.popBackStack() },
                 onEditPages = { docId -> nav.navigate("pages/$docId") },
+                onAddPages = { docId -> nav.navigate("camera/append/$docId") },
+            )
+        }
+        composable("camera/single") {
+            CameraScreen(vm = vm, batch = false, appendId = null, onClose = { nav.popBackStack() })
+        }
+        composable("camera/batch") {
+            CameraScreen(vm = vm, batch = true, appendId = null, onClose = { nav.popBackStack() })
+        }
+        composable(
+            route = "camera/append/{id}",
+            arguments = listOf(navArgument("id") { type = NavType.StringType }),
+        ) { entry ->
+            CameraScreen(
+                vm = vm,
+                batch = true,
+                appendId = entry.arguments?.getString("id").orEmpty(),
+                onClose = { nav.popBackStack() },
             )
         }
         composable(

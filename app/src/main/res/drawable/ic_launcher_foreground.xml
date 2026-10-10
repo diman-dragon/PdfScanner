@@ -1,45 +1,58 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Рамка видоискателя -->
+    <!-- Лист свитка -->
     <path
-        android:pathData="M26,38 V30 A4,4 0 0 1 30,26 H38"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="3.4"
+        android:fillColor="#F4E4B8"
+        android:pathData="M38,30 L70,30 Q72.5,38 70.5,45 Q68.5,53 70.5,61 Q72.5,69 70,78 L38,78 Q35.5,70 37.5,62 Q39.5,54 37.5,46 Q35.5,38 38,30 Z" />
+    <path
+        android:fillColor="#E2C98C"
+        android:pathData="M38,30 L42,30 Q40,40 41.5,48 Q43,56 41.5,63 Q40,70 42,78 L38,78 Q35.5,70 37.5,62 Q39.5,54 37.5,46 Q35.5,38 38,30 Z" />
+    <!-- Древние письмена -->
+    <path
+        android:pathData="M44,37 H52 M55,37 H59 M62,37 H66 M44,42 H48 M51,42 H60 M63,42 H66 M44,47 H55 M58,47 H64 M44,65 H50 M53,65 H66 M44,70 H57 M60,70 H64"
+        android:strokeColor="#6B4A1F"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round" />
+    <!-- Валики свитка -->
+    <path
+        android:fillColor="#D2A860"
+        android:pathData="M31,24 H77 A3.6,3.6 0 0 1 77,31.2 H31 A3.6,3.6 0 0 1 31,24 Z M31,76.8 H77 A3.6,3.6 0 0 1 77,84 H31 A3.6,3.6 0 0 1 31,76.8 Z" />
+    <path
+        android:pathData="M34,26 H74 M34,78.8 H74"
+        android:strokeColor="#F2D79A"
+        android:strokeWidth="1.2"
         android:strokeLineCap="round" />
     <path
-        android:pathData="M70,26 H78 A4,4 0 0 1 82,30 V38"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="3.4"
+        android:fillColor="#A9783A"
+        android:pathData="M27.6,27.6 a3.4,3.4 0 1 0 6.8,0 a3.4,3.4 0 1 0 -6.8,0 M73.6,27.6 a3.4,3.4 0 1 0 6.8,0 a3.4,3.4 0 1 0 -6.8,0 M27.6,80.4 a3.4,3.4 0 1 0 6.8,0 a3.4,3.4 0 1 0 -6.8,0 M73.6,80.4 a3.4,3.4 0 1 0 6.8,0 a3.4,3.4 0 1 0 -6.8,0" />
+    <!-- Луч сканера -->
+    <path android:pathData="M26,45 H82 V67 H26 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="45"
+                android:endX="0"
+                android:endY="67"
+                android:type="linear">
+                <item android:color="#003DF2C5" android:offset="0.0" />
+                <item android:color="#803DF2C5" android:offset="0.5" />
+                <item android:color="#003DF2C5" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:pathData="M27,56 H81"
+        android:strokeColor="#3DF2C5"
+        android:strokeWidth="2.6"
         android:strokeLineCap="round" />
     <path
-        android:pathData="M82,70 V78 A4,4 0 0 1 78,82 H70"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="3.4"
+        android:pathData="M29,56 H79"
+        android:strokeColor="#E6FFFFFF"
+        android:strokeWidth="0.8"
         android:strokeLineCap="round" />
-    <path
-        android:pathData="M38,82 H30 A4,4 0 0 1 26,78 V70"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="3.4"
-        android:strokeLineCap="round" />
-    <!-- Лист -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M42,34 H60 L70,44 V70 A4,4 0 0 1 66,74 H42 A4,4 0 0 1 38,70 V38 A4,4 0 0 1 42,34 Z" />
-    <path
-        android:fillColor="#C7D2FF"
-        android:pathData="M60,34 L70,44 H64 A4,4 0 0 1 60,40 Z" />
-    <path
-        android:fillColor="#C7D2FF"
-        android:pathData="M43,40 H54 V42.6 H43 Z M43,61 H65 V63.6 H43 Z M43,67 H57 V69.6 H43 Z" />
-    <!-- Луч сканера: мягкое свечение и яркая линия -->
-    <path
-        android:fillColor="#55FFD43B"
-        android:pathData="M30,49.5 H78 V60.5 H30 Z" />
-    <path
-        android:fillColor="#FFFFD43B"
-        android:pathData="M31,53 H77 A2,2 0 0 1 77,57 H31 A2,2 0 0 1 31,53 Z" />
 </vector>

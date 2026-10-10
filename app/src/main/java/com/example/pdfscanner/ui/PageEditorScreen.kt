@@ -2,6 +2,8 @@ package com.example.pdfscanner.ui
 
 import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -111,26 +113,20 @@ fun PageEditorScreen(id: String, vm: MainViewModel, onBack: () -> Unit) {
         loading = false
     }
 
-    val startScan = rememberScanStarter(
-        pageLimit = 30,
-        onResult = { result ->
-            val uris = result.pages?.map { it.imageUri }.orEmpty()
-            if (uris.isNotEmpty()) {
-                scope.launch {
-                    busy = true
-                    try {
-                        pages.addAll(session.addPages(uris))
-                        dirty = true
-                    } catch (e: Exception) {
-                        snackbar.showSnackbar("Не удалось добавить страницы")
-                    }
-                    busy = false
+    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        if (uris.isNotEmpty()) {
+            scope.launch {
+                busy = true
+                try {
+                    pages.addAll(session.addPages(uris))
+                    dirty = true
+                } catch (e: Exception) {
+                    snackbar.showSnackbar("Не удалось добавить страницы")
                 }
+                busy = false
             }
-        },
-        onCancelled = { },
-        onError = { message -> scope.launch { snackbar.showSnackbar(message) } },
-    )
+        }
+    }
 
     fun move(from: Int, to: Int) {
         if (from == to || from !in pages.indices) return
@@ -188,8 +184,8 @@ fun PageEditorScreen(id: String, vm: MainViewModel, onBack: () -> Unit) {
                     }
                 },
                 actions = {
-                    IconButton(onClick = startScan, enabled = !busy && !loading) {
-                        Icon(Icons.Default.Add, contentDescription = "Добавить страницы")
+                    IconButton(onClick = { gallery.launch("image/*") }, enabled = !busy && !loading) {
+                        Icon(Icons.Default.Add, contentDescription = "Добавить страницы из галереи")
                     }
                     TextButton(
                         onClick = { apply() },

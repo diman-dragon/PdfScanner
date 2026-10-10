@@ -6,6 +6,8 @@ import android.content.ContextWrapper
 import android.graphics.BitmapFactory
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -20,7 +22,6 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
-import com.example.pdfscanner.BatchState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -117,14 +118,13 @@ tailrec fun Context.findActivity(): Activity = when (this) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Unit) {
+fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Unit, onCamera: (Boolean) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val snackbar = remember { SnackbarHostState() }
     val docs by vm.documents.collectAsStateWithLifecycle()
     val progress by vm.progress.collectAsStateWithLifecycle()
-    val batch by vm.batch.collectAsStateWithLifecycle()
     val batchDelay by vm.batchDelay.collectAsStateWithLifecycle()
     var showModeSheet by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
@@ -140,14 +140,9 @@ fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Un
         selected = if (id in selected) selected - id else selected + id
     }
 
-    val startScan = rememberScanStarter(
-        onResult = { vm.onScanResult(it) },
-        onCancelled = { vm.onScanCancelled() },
-        onError = { message ->
-            scope.launch { snackbar.showSnackbar(message, duration = SnackbarDuration.Long) }
-            vm.onScanCancelled()
-        },
-    )
+    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        if (uris.isNotEmpty()) vm.importUris(uris)
+    }
 
     fun deleteWithUndo(doc: DocumentEntity) {
         vm.delete(doc)
@@ -172,7 +167,6 @@ fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Un
             when (event) {
                 is UiEvent.Message -> snackbar.showSnackbar(event.text)
                 is UiEvent.Opened -> onOpen(event.id)
-                UiEvent.LaunchScanner -> startScan()
             }
         }
     }
@@ -207,7 +201,7 @@ fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Un
             }
         },
         floatingActionButton = {
-            if (!selecting && batch == null) {
+            if (!selecting) {
                 ExtendedFloatingActionButton(
                     onClick = { showModeSheet = true },
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
@@ -262,7 +256,7 @@ fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Un
                                     start = 16.dp,
                                     end = 16.dp,
                                     top = if (running != null) 72.dp else 8.dp,
-                                    bottom = if (batch != null) 240.dp else 96.dp,
+                                    bottom = 96.dp,
                                 ),
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
@@ -321,22 +315,6 @@ fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Un
             if (running != null) {
                 ProgressBanner(running, Modifier.align(Alignment.TopCenter))
             }
-            batch?.let { state ->
-                AnimatedVisibility(
-                    visible = state.countdown != null || state.paused,
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                    enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                    exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-                ) {
-                    BatchCard(
-                        state = state,
-                        delay = batchDelay,
-                        onDelayChange = { vm.setBatchDelay(it) },
-                        onFinish = { vm.finishBatch() },
-                        onNext = { vm.nextNow() },
-                    )
-                }
-            }
         }
     }
 
@@ -349,20 +327,27 @@ fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Un
                 Text("Что сканируем?", style = MaterialTheme.typography.titleLarge)
                 ModeCard(
                     title = "Одна страница",
-                    subtitle = "Быстрый скан: одна страница, один PDF",
+                    subtitle = "Навели камеру, кадр снялся сам, проверили. Одна страница, один PDF",
                     onClick = {
                         showModeSheet = false
-                        startScan()
+                        onCamera(false)
                     },
                 )
                 ModeCard(
                     title = "Пакет страниц",
-                    subtitle = "Несколько страниц в один PDF. Следующая страница откроется сама через $batchDelay с, завершить можно в любой момент",
+                    subtitle = "Несколько страниц в один PDF: после каждой пауза $batchDelay с, чтобы перевернуть лист, и камера снимает следующую сама",
                     highlighted = true,
                     onClick = {
                         showModeSheet = false
-                        vm.startBatch()
-                        startScan()
+                        onCamera(true)
+                    },
+                )
+                ModeCard(
+                    title = "Из галереи",
+                    subtitle = "Выбрать готовые фотографии и собрать из них один PDF",
+                    onClick = {
+                        showModeSheet = false
+                        gallery.launch("image/*")
                     },
                 )
             }
@@ -629,92 +614,6 @@ private fun ModeCard(title: String, subtitle: String, onClick: () -> Unit, highl
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 2.dp),
                 )
-            }
-        }
-    }
-}
-
-/** Карточка пакетного режима: обратный отсчёт, интервал и кнопки «Завершить» / «Сейчас». */
-@Composable
-private fun BatchCard(
-    state: BatchState,
-    delay: Int,
-    onDelayChange: (Int) -> Unit,
-    onFinish: () -> Unit,
-    onNext: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(12.dp),
-        shape = RoundedCornerShape(28.dp),
-        tonalElevation = 6.dp,
-        shadowElevation = 12.dp,
-    ) {
-        Column(Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(64.dp), contentAlignment = Alignment.Center) {
-                    val left = state.countdown
-                    if (left != null) {
-                        val target = (left - 1f).coerceAtLeast(0f) / state.total.coerceAtLeast(1)
-                        val ring by animateFloatAsState(
-                            targetValue = target,
-                            animationSpec = tween(durationMillis = 1000, easing = LinearEasing),
-                            label = "ring",
-                        )
-                        CircularProgressIndicator(
-                            progress = { ring },
-                            modifier = Modifier.fillMaxSize(),
-                            strokeWidth = 5.dp,
-                            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        )
-                        Text("$left", style = MaterialTheme.typography.headlineSmall)
-                    } else {
-                        Image(
-                            painter = painterResource(R.drawable.ic_scan),
-                            contentDescription = null,
-                            colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.primary),
-                            modifier = Modifier.size(48.dp),
-                        )
-                    }
-                }
-                Column(Modifier.padding(start = 16.dp)) {
-                    Text("Страниц в документе: ${state.pages}", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        if (state.countdown != null) {
-                            "Следующая страница через ${state.countdown} с"
-                        } else {
-                            "Сканирование приостановлено"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            Row(
-                Modifier.fillMaxWidth().padding(top = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "Интервал между страницами",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                FilledTonalIconButton(onClick = { onDelayChange(delay - 1) }, enabled = delay > 1) { Text("−") }
-                Text(
-                    "$delay с",
-                    style = MaterialTheme.typography.titleMedium,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.width(52.dp),
-                )
-                FilledTonalIconButton(onClick = { onDelayChange(delay + 1) }, enabled = delay < 30) { Text("+") }
-            }
-            Row(
-                Modifier.fillMaxWidth().padding(top = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                OutlinedButton(onClick = onFinish, modifier = Modifier.weight(1f)) { Text("Завершить") }
-                Button(onClick = onNext, modifier = Modifier.weight(1f)) {
-                    Text(if (state.countdown != null) "Сейчас" else "Продолжить")
-                }
             }
         }
     }

@@ -47,6 +47,7 @@ import androidx.core.content.pm.PackageInfoCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.pdfscanner.MainViewModel
 import com.example.pdfscanner.R
+import com.example.pdfscanner.data.BorderMode
 import com.example.pdfscanner.data.ThemeMode
 import com.example.pdfscanner.processing.FilterMode
 
@@ -202,16 +203,39 @@ fun ScanSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     val ocrEnabled by vm.ocrEnabled.collectAsStateWithLifecycle()
     val ocrLangs by vm.ocrLangs.collectAsStateWithLifecycle()
     val batchDelay by vm.batchDelay.collectAsStateWithLifecycle()
+    val borderMode by vm.borderMode.collectAsStateWithLifecycle()
+    val autoCapture by vm.autoCapture.collectAsStateWithLifecycle()
 
     SettingsScaffold(title = "Настройки сканирования", onBack = onBack) {
-        SectionTitle("Пакетное сканирование")
+        SectionTitle("Камера")
+        ListItem(
+            headlineContent = { Text("Снимать без кнопки") },
+            supportingContent = { Text("Камера сама снимает, когда документ в кадре стоит неподвижно") },
+            trailingContent = { Switch(checked = autoCapture, onCheckedChange = null) },
+            modifier = Modifier.clickable { vm.setAutoCapture(!autoCapture) },
+        )
+        ListItem(
+            headlineContent = { Text("Границы определять автоматически") },
+            supportingContent = { Text("Рамка по краям документа ищется на каждом кадре") },
+            leadingContent = { RadioButton(selected = borderMode == BorderMode.AUTO, onClick = null) },
+            modifier = Modifier.clickable { vm.setBorderMode(BorderMode.AUTO) },
+        )
+        ListItem(
+            headlineContent = { Text("Свои границы") },
+            supportingContent = { Text("Выставляете углы один раз на первом снимке, дальше они применяются ко всем страницам") },
+            leadingContent = { RadioButton(selected = borderMode == BorderMode.MANUAL, onClick = null) },
+            modifier = Modifier.clickable { vm.setBorderMode(BorderMode.MANUAL) },
+        )
+
+        SectionTitle("Пауза в пакетном режиме")
         ListItem(
             headlineContent = { Text("Следующая страница через") },
             supportingContent = {
                 Column {
                     Text(
                         "$batchDelay с. Режим выбирается кнопкой «Сканировать»: " +
-                            "одиночный скан всегда даёт одну страницу",
+                            "в одиночном режиме всегда одна страница, в пакетном камера ждёт эту паузу, " +
+                            "пока вы переворачиваете лист",
                     )
                     Slider(
                         value = batchDelay.toFloat(),

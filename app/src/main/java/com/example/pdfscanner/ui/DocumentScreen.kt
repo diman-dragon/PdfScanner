@@ -95,7 +95,13 @@ internal fun folderLabel(context: Context, uri: String): String =
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DocumentScreen(id: String, vm: MainViewModel, onBack: () -> Unit, onEditPages: (String) -> Unit) {
+fun DocumentScreen(
+    id: String,
+    vm: MainViewModel,
+    onBack: () -> Unit,
+    onEditPages: (String) -> Unit,
+    onAddPages: (String) -> Unit,
+) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
@@ -172,6 +178,13 @@ fun DocumentScreen(id: String, vm: MainViewModel, onBack: () -> Unit, onEditPage
                                     )
                                 }
                                 if (current.origDir != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Снять ещё страницы") },
+                                        onClick = {
+                                            menu = false
+                                            onAddPages(current.id)
+                                        },
+                                    )
                                     DropdownMenuItem(
                                         text = { Text("Страницы: порядок, повороты, добавление") },
                                         onClick = {

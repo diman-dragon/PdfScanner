@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: "Версия для пользователей, например 2.0.2"
+        description: "Версия для пользователей, например 2.0.0"
         required: true
-        default: "2.0.2"
+        default: "2.0.0"
 
 permissions:
   contents: read

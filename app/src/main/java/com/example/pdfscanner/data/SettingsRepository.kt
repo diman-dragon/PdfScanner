@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.asStateFlow
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
+/** AUTO: границы документа ищутся на каждом кадре. MANUAL: задаются один раз на первом снимке и дальше применяются сами. */
+enum class BorderMode { AUTO, MANUAL }
+
 class SettingsRepository(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
@@ -44,6 +47,26 @@ class SettingsRepository(context: Context) {
         val value = seconds.coerceIn(1, 30)
         prefs.edit().putInt(KEY_BATCH, value).apply()
         _batchDelay.value = value
+    }
+
+    private val _borderMode = MutableStateFlow(
+        runCatching { BorderMode.valueOf(prefs.getString(KEY_BORDER, null) ?: "AUTO") }
+            .getOrDefault(BorderMode.AUTO),
+    )
+    val borderMode: StateFlow<BorderMode> = _borderMode.asStateFlow()
+
+    /** Снимать без нажатия на кнопку, когда кадр стабилен. */
+    private val _autoCapture = MutableStateFlow(prefs.getBoolean(KEY_AUTO_CAPTURE, true))
+    val autoCapture: StateFlow<Boolean> = _autoCapture.asStateFlow()
+
+    fun setBorderMode(mode: BorderMode) {
+        prefs.edit().putString(KEY_BORDER, mode.name).apply()
+        _borderMode.value = mode
+    }
+
+    fun setAutoCapture(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_CAPTURE, enabled).apply()
+        _autoCapture.value = enabled
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -84,5 +107,7 @@ class SettingsRepository(context: Context) {
         const val KEY_OCR = "ocr_enabled"
         const val KEY_LANGS = "ocr_langs"
         const val KEY_BATCH = "batch_delay_s"
+        const val KEY_BORDER = "border_mode"
+        const val KEY_AUTO_CAPTURE = "auto_capture"
     }
 }
