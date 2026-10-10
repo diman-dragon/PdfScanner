@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -14,7 +16,7 @@ val releaseKeystorePath: String? = System.getenv("RELEASE_KEYSTORE_PATH")
 // новый случайный ключ, и Android отказывался ставить APK поверх старого.
 val debugKeystoreFile: File = layout.buildDirectory.file("signing/debug.keystore").get().asFile.also { target ->
     target.parentFile.mkdirs()
-    target.writeBytes(java.util.Base64.getMimeDecoder().decode(file("debug-keystore.b64").readText()))
+    target.writeBytes(Base64.getMimeDecoder().decode(file("debug-keystore.b64").readText()))
 }
 
 android {
@@ -25,8 +27,8 @@ android {
         applicationId = "com.example.pdfscanner"
         minSdk = 26
         targetSdk = 35
-        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 8
-        versionName = System.getenv("VERSION_NAME") ?: "2.0.1"
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 9
+        versionName = System.getenv("VERSION_NAME") ?: "2.0.2"
 
         // Нативные библиотеки OCR только для реальных телефонов: APK заметно меньше.
         ndk {
