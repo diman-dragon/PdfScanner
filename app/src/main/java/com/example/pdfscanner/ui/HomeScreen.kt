@@ -23,6 +23,10 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.ExperimentalFoundationApi
+import com.example.pdfscanner.processing.ScanPreset
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -126,6 +130,7 @@ fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Un
     val docs by vm.documents.collectAsStateWithLifecycle()
     val progress by vm.progress.collectAsStateWithLifecycle()
     val batchDelay by vm.batchDelay.collectAsStateWithLifecycle()
+    val preset by vm.preset.collectAsStateWithLifecycle()
     var showModeSheet by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -325,9 +330,26 @@ fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Un
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("Что сканируем?", style = MaterialTheme.typography.titleLarge)
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ScanPreset.values().forEach { p ->
+                        FilterChip(
+                            selected = preset == p,
+                            onClick = { vm.setPreset(p) },
+                            label = { Text(p.title) },
+                        )
+                    }
+                }
+                Text(
+                    preset.hint,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 ModeCard(
                     title = "Одна страница",
-                    subtitle = "Навели камеру, кадр снялся сам, проверили. Одна страница, один PDF",
+                    subtitle = "Навели камеру и нажали кнопку, проверили снимок: готово или удалить. Одна страница, один PDF",
                     onClick = {
                         showModeSheet = false
                         onCamera(false)
@@ -335,7 +357,7 @@ fun HomeScreen(vm: MainViewModel, onOpen: (String) -> Unit, onSettings: () -> Un
                 )
                 ModeCard(
                     title = "Пакет страниц",
-                    subtitle = "Несколько страниц в один PDF: после каждой пауза $batchDelay с, чтобы перевернуть лист, и камера снимает следующую сама",
+                    subtitle = "Несколько страниц или сторон в один PDF. Снимаете кнопкой; в камере можно включить автоснимок с паузой $batchDelay с",
                     highlighted = true,
                     onClick = {
                         showModeSheet = false

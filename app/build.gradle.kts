@@ -27,8 +27,8 @@ android {
         applicationId = "com.example.pdfscanner"
         minSdk = 26
         targetSdk = 35
-        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 10
-        versionName = System.getenv("VERSION_NAME") ?: "2.0.3"
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 12
+        versionName = System.getenv("VERSION_NAME") ?: "2.0.5"
 
         // Нативные библиотеки OCR только для реальных телефонов: APK заметно меньше.
         ndk {

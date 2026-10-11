@@ -32,6 +32,8 @@ data class DocumentEntity(
     val filterMode: String? = null,
     /** Распознанный текст, для поиска по документам. */
     val ocrText: String? = null,
+    /** Тип документа (паспорт, карта, визитка…): от него зависит раскладка в PDF. */
+    val preset: String? = null,
 )
 
 @Dao
@@ -64,7 +66,13 @@ private val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
-@Database(entities = [DocumentEntity::class], version = 2, exportSchema = false)
+private val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE documents ADD COLUMN preset TEXT")
+    }
+}
+
+@Database(entities = [DocumentEntity::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun documentDao(): DocumentDao
 
@@ -77,7 +85,7 @@ abstract class AppDatabase : RoomDatabase() {
                 context.applicationContext,
                 AppDatabase::class.java,
                 "scanner.db",
-            ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
         }
     }
 }

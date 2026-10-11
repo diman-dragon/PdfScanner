@@ -2,6 +2,10 @@ package com.example.pdfscanner.processing
 
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.hypot
+import kotlin.math.ln
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Простой поиск документа в кадре без нейросетей: ищем самую большую область, заметно
@@ -12,30 +16,71 @@ object DocumentDetector {
     private const val MIN_FRACTION = 0.12f
     private const val MAX_FRACTION = 0.96f
     private const val MIN_EDGE = 30f
+    private const val MAX_CANDIDATES = 5
 
-    /** pix: яркость кадра (w*h байт, строка за строкой). Возвращает углы документа или null. */
-    fun detect(pix: ByteArray, w: Int, h: Int): List<Pt>? {
+    /**
+     * pix: яркость кадра (w*h байт, строка за строкой).
+     * minFraction: минимальная доля кадра, которую занимает документ (для карт и визиток меньше).
+     * aspect: ожидаемое отношение длинной стороны к короткой (карта 1,58), null = любое.
+     * Возвращает углы документа или null.
+     */
+    fun detect(pix: ByteArray, w: Int, h: Int, minFraction: Float = MIN_FRACTION, aspect: Float? = null): List<Pt>? {
         if (w < 16 || h < 16 || pix.size < w * h) return null
         val n = w * h
         val g = blur3(pix, w, h)
         val threshold = otsu(g)
+        val minSize = (minFraction * n).toInt().coerceAtLeast(30)
 
         for (bright in booleanArrayOf(true, false)) {
             val mask = BooleanArray(n) { if (bright) g[it] > threshold else g[it] <= threshold }
-            val comp = largestComponent(mask, w, h) ?: continue
-            val fraction = comp.size.toFloat() / n
-            if (fraction < MIN_FRACTION || fraction > MAX_FRACTION) continue
-            val fit = fitQuad(comp, w, h) ?: continue
-            if (edgeStrength(g, w, h, fit.boundary) < MIN_EDGE) continue
-            val ordered = order(fit.quad)
-            val area = polygonArea(ordered)
-            if (area < 1f) continue
-            val fill = comp.size / area
-            if (fill < 0.80f || fill > 1.20f) continue
-            if (!isConvex(ordered)) continue
-            return ordered.map { Pt((it.x + 0.5f) / w, (it.y + 0.5f) / h) }
+            // Перебираем несколько самых крупных областей: на столе рядом могут быть другие предметы.
+            for (comp in largestComponents(mask, w, h, minSize, MAX_CANDIDATES)) {
+                val fraction = comp.size.toFloat() / n
+                if (fraction > MAX_FRACTION) continue
+                if (touchesAllBorders(comp, w, h)) continue   // это фон, а не документ
+                val fit = fitQuad(comp, w, h) ?: continue
+                if (edgeStrength(g, w, h, fit.boundary) < MIN_EDGE) continue
+                val ordered = order(fit.quad)
+                val area = polygonArea(ordered)
+                if (area < 1f) continue
+                val fill = comp.size / area
+                if (fill < 0.80f || fill > 1.20f) continue
+                if (!isConvex(ordered)) continue
+                if (aspect != null && !aspectMatches(ordered, aspect)) continue
+                return ordered.map { Pt((it.x + 0.5f) / w, (it.y + 0.5f) / h) }
+            }
         }
         return null
+    }
+
+    private fun touchesAllBorders(comp: IntArray, w: Int, h: Int): Boolean {
+        var left = false
+        var right = false
+        var top = false
+        var bottom = false
+        for (p in comp) {
+            val x = p % w
+            val y = p / w
+            if (x == 0) left = true
+            if (x == w - 1) right = true
+            if (y == 0) top = true
+            if (y == h - 1) bottom = true
+        }
+        return left && right && top && bottom
+    }
+
+    /** Подходит ли четырёхугольник по пропорции (с допуском ±35%, в любой ориентации). */
+    private fun aspectMatches(q: List<Pt>, aspect: Float): Boolean {
+        val top = hypot(q[1].x - q[0].x, q[1].y - q[0].y)
+        val bottom = hypot(q[2].x - q[3].x, q[2].y - q[3].y)
+        val left = hypot(q[3].x - q[0].x, q[3].y - q[0].y)
+        val right = hypot(q[2].x - q[1].x, q[2].y - q[1].y)
+        val w = (top + bottom) / 2f
+        val h = (left + right) / 2f
+        if (w < 1f || h < 1f) return false
+        val long = max(w, h)
+        val short = min(w, h)
+        return abs(ln(long / short / aspect)) < 0.30f
     }
 
     /** Средняя абсолютная разница яркости двух кадров одного размера (0..255). */
@@ -89,12 +134,13 @@ object DocumentDetector {
         return threshold
     }
 
-    private fun largestComponent(mask: BooleanArray, w: Int, h: Int): IntArray? {
+    /** До maxCount самых крупных связных областей (размером не меньше minSize), от большей к меньшей. */
+    private fun largestComponents(mask: BooleanArray, w: Int, h: Int, minSize: Int, maxCount: Int): List<IntArray> {
         val n = w * h
         val visited = BooleanArray(n)
         val stack = IntArray(n)
         val buffer = IntArray(n)
-        var best: IntArray? = null
+        val found = ArrayList<IntArray>()
         for (start in 0 until n) {
             if (!mask[start] || visited[start]) continue
             var sp = 0
@@ -111,9 +157,10 @@ object DocumentDetector {
                 if (y > 0 && mask[p - w] && !visited[p - w]) { visited[p - w] = true; stack[sp++] = p - w }
                 if (y < h - 1 && mask[p + w] && !visited[p + w]) { visited[p + w] = true; stack[sp++] = p + w }
             }
-            if (best == null || count > best.size) best = buffer.copyOf(count)
+            if (count >= minSize) found.add(buffer.copyOf(count))
         }
-        return best
+        found.sortByDescending { it.size }
+        return if (found.size > maxCount) found.subList(0, maxCount) else found
     }
 
     /** Выпуклая оболочка контура области, затем отбрасываем «лишние» вершины, пока не останется четыре. */

@@ -2,11 +2,13 @@ package com.example.pdfscanner.data
 
 import android.content.Context
 import com.example.pdfscanner.processing.FilterMode
+import com.example.pdfscanner.processing.ScanPreset
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-enum class ThemeMode { SYSTEM, LIGHT, DARK }
+/** LIGHT: светло-коричневая, AMOLED: чёрная. SYSTEM: днём светло-коричневая, ночью AMOLED. */
+enum class ThemeMode { SYSTEM, LIGHT, AMOLED }
 
 /** AUTO: границы документа ищутся на каждом кадре. MANUAL: задаются один раз на первом снимке и дальше применяются сами. */
 enum class BorderMode { AUTO, MANUAL }
@@ -15,13 +17,13 @@ class SettingsRepository(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     private val _themeMode = MutableStateFlow(
-        runCatching { ThemeMode.valueOf(prefs.getString(KEY_THEME, null) ?: "SYSTEM") }
-            .getOrDefault(ThemeMode.SYSTEM),
+        when (prefs.getString(KEY_THEME, null)) {
+            "LIGHT" -> ThemeMode.LIGHT
+            "AMOLED", "DARK" -> ThemeMode.AMOLED
+            else -> ThemeMode.SYSTEM
+        },
     )
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
-
-    private val _dynamicColor = MutableStateFlow(prefs.getBoolean(KEY_DYNAMIC, true))
-    val dynamicColor: StateFlow<Boolean> = _dynamicColor.asStateFlow()
 
     private val _exportFolder = MutableStateFlow(prefs.getString(KEY_FOLDER, null))
     val exportFolder: StateFlow<String?> = _exportFolder.asStateFlow()
@@ -55,9 +57,18 @@ class SettingsRepository(context: Context) {
     )
     val borderMode: StateFlow<BorderMode> = _borderMode.asStateFlow()
 
-    /** Снимать без нажатия на кнопку, когда кадр стабилен. */
-    private val _autoCapture = MutableStateFlow(prefs.getBoolean(KEY_AUTO_CAPTURE, true))
+    /** Автоснимок в пакетном режиме (по умолчанию выключен: снимаем по кнопке). */
+    private val _autoCapture = MutableStateFlow(prefs.getBoolean(KEY_AUTO_CAPTURE, false))
     val autoCapture: StateFlow<Boolean> = _autoCapture.asStateFlow()
+
+    /** Последний выбранный тип документа. */
+    private val _preset = MutableStateFlow(ScanPreset.fromName(prefs.getString(KEY_PRESET, null)))
+    val preset: StateFlow<ScanPreset> = _preset.asStateFlow()
+
+    fun setPreset(value: ScanPreset) {
+        prefs.edit().putString(KEY_PRESET, value.name).apply()
+        _preset.value = value
+    }
 
     fun setBorderMode(mode: BorderMode) {
         prefs.edit().putString(KEY_BORDER, mode.name).apply()
@@ -72,11 +83,6 @@ class SettingsRepository(context: Context) {
     fun setThemeMode(mode: ThemeMode) {
         prefs.edit().putString(KEY_THEME, mode.name).apply()
         _themeMode.value = mode
-    }
-
-    fun setDynamicColor(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_DYNAMIC, enabled).apply()
-        _dynamicColor.value = enabled
     }
 
     fun setExportFolder(uri: String?) {
@@ -101,13 +107,13 @@ class SettingsRepository(context: Context) {
 
     private companion object {
         const val KEY_THEME = "theme"
-        const val KEY_DYNAMIC = "dynamic_color"
         const val KEY_FOLDER = "export_folder"
         const val KEY_FILTER = "filter"
         const val KEY_OCR = "ocr_enabled"
         const val KEY_LANGS = "ocr_langs"
         const val KEY_BATCH = "batch_delay_s"
         const val KEY_BORDER = "border_mode"
-        const val KEY_AUTO_CAPTURE = "auto_capture"
+        const val KEY_PRESET = "scan_preset"
+        const val KEY_AUTO_CAPTURE = "auto_capture_batch"
     }
 }

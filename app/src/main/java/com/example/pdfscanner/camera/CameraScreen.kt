@@ -21,6 +21,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -74,6 +76,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.pdfscanner.MainViewModel
 import com.example.pdfscanner.data.BorderMode
+import com.example.pdfscanner.processing.ScanPreset
 import kotlinx.coroutines.delay
 import java.util.concurrent.Executors
 
@@ -105,6 +108,7 @@ fun CameraScreen(vm: MainViewModel, batch: Boolean, appendId: String?, onClose: 
             borderMode = vm.borderMode.value,
             delaySeconds = vm.batchDelay.value,
             autoCapture = vm.autoCapture.value,
+            preset = vm.preset.value,
         )
     }
     DisposableEffect(session) { onDispose { session.dispose() } }
@@ -114,7 +118,7 @@ fun CameraScreen(vm: MainViewModel, batch: Boolean, appendId: String?, onClose: 
     var camera by remember { mutableStateOf<Camera?>(null) }
 
     fun finish() {
-        vm.importCaptured(session.dir, appendId)
+        vm.importCaptured(session.dir, appendId, session.preset)
         onClose()
     }
 
@@ -251,7 +255,7 @@ fun CameraScreen(vm: MainViewModel, batch: Boolean, appendId: String?, onClose: 
                             session.changeBorderMode(BorderMode.AUTO)
                             vm.setBorderMode(BorderMode.AUTO)
                         },
-                        label = { Text("Авто") },
+                        label = { Text("Границы: авто") },
                     )
                     Spacer(Modifier.width(8.dp))
                     FilterChip(
@@ -260,11 +264,42 @@ fun CameraScreen(vm: MainViewModel, batch: Boolean, appendId: String?, onClose: 
                             session.changeBorderMode(BorderMode.MANUAL)
                             vm.setBorderMode(BorderMode.MANUAL)
                         },
-                        label = { Text("Свои границы") },
+                        label = { Text("Свои") },
                     )
+                    if (batch) {
+                        Spacer(Modifier.width(8.dp))
+                        FilterChip(
+                            selected = session.autoCapture,
+                            onClick = {
+                                val enabled = !session.autoCapture
+                                session.changeAutoCapture(enabled)
+                                vm.setAutoCapture(enabled)
+                            },
+                            label = { Text("Автоснимок") },
+                        )
+                    }
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = { torch = !torch }) {
                         Text(if (torch) "Свет: вкл" else "Свет", color = Color.White)
+                    }
+                }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ScanPreset.values().forEach { p ->
+                        FilterChip(
+                            selected = session.preset == p,
+                            enabled = session.pages.isEmpty() && appendId == null,
+                            onClick = {
+                                session.changePreset(p)
+                                vm.setPreset(p)
+                            },
+                            label = { Text(p.title) },
+                        )
                     }
                 }
                 val status = statusText(session)
@@ -282,7 +317,7 @@ fun CameraScreen(vm: MainViewModel, batch: Boolean, appendId: String?, onClose: 
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         )
                     }
-                    if (session.phase == CaptureSession.Phase.AIMING && session.progress > 0f) {
+                    if (session.phase == CaptureSession.Phase.AIMING && session.autoCapture && session.progress > 0f) {
                         LinearProgressIndicator(
                             progress = { session.progress },
                             modifier = Modifier
@@ -358,10 +393,12 @@ fun CameraScreen(vm: MainViewModel, batch: Boolean, appendId: String?, onClose: 
 
 private fun statusText(session: CaptureSession): String? = when (session.phase) {
     CaptureSession.Phase.AIMING -> when {
-        !session.autoCapture -> "Нажмите кнопку съёмки"
-        session.borderMode == BorderMode.AUTO && session.liveQuad == null -> "Наведите камеру на документ"
-        session.borderMode == BorderMode.MANUAL && session.manualQuad == null ->
-            "Держите камеру неподвижно: после снимка вы выставите границы"
+        session.borderMode == BorderMode.MANUAL && session.manualQuad != null ->
+            if (session.autoCapture) "Совместите края с рамкой" else "Совместите края с рамкой и нажмите кнопку"
+        session.borderMode == BorderMode.MANUAL ->
+            if (session.autoCapture) "Держите камеру неподвижно, затем выставите границы" else "Нажмите кнопку, затем выставите границы"
+        !session.autoCapture -> if (session.liveQuad == null) "Наведите на ${session.preset.target} и нажмите кнопку" else "Найдено. Нажмите кнопку"
+        session.liveQuad == null -> "Наведите камеру на ${session.preset.target}"
         session.progress >= 1f -> "Снимаю…"
         else -> "Держите ровно…"
     }
@@ -372,48 +409,75 @@ private fun statusText(session: CaptureSession): String? = when (session.phase) 
 
 @Composable
 private fun AimingControls(session: CaptureSession, onFinish: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 20.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    Column(Modifier.fillMaxWidth()) {
         val last = session.pages.lastOrNull()
-        Box(Modifier.size(64.dp)) {
-            if (last != null) {
-                Image(
-                    bitmap = last.thumb,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)),
-                )
-                Box(
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
-                        .padding(horizontal = 7.dp, vertical = 2.dp),
+        if (last != null) {
+            Surface(
+                color = Color(0xCC000000),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            ) {
+                Row(
+                    Modifier.padding(start = 10.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        "${session.pages.size}",
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        style = MaterialTheme.typography.labelMedium,
+                    Image(
+                        bitmap = last.thumb,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.width(34.dp).height(46.dp).clip(RoundedCornerShape(6.dp)),
                     )
+                    Text(
+                        "Стр. ${session.pages.size}",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(horizontal = 10.dp),
+                    )
+                    TextButton(onClick = { session.editLast() }, enabled = !session.busy) {
+                        Text("Границы", color = Color.White)
+                    }
+                    TextButton(onClick = { session.deleteLast() }, enabled = !session.busy) {
+                        Text("Удалить", color = Color.White)
+                    }
                 }
             }
         }
-        Box(
-            Modifier
-                .size(76.dp)
-                .border(4.dp, Color.White, CircleShape)
-                .padding(7.dp)
-                .clip(CircleShape)
-                .background(if (session.busy) Color.Gray else Color.White)
-                .clickable(enabled = !session.busy) { session.shoot() },
-        )
-        if (session.pages.isNotEmpty()) {
-            FilledTonalButton(onClick = onFinish, enabled = !session.busy) { Text("Готово") }
-        } else {
-            Spacer(Modifier.width(64.dp))
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(64.dp)) {
+                if (last != null) {
+                    Box(
+                        Modifier
+                            .align(Alignment.Center)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary)
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                    ) {
+                        Text(
+                            "${session.pages.size}",
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
+                }
+            }
+            Box(
+                Modifier
+                    .size(76.dp)
+                    .border(4.dp, Color.White, CircleShape)
+                    .padding(7.dp)
+                    .clip(CircleShape)
+                    .background(if (session.busy) Color.Gray else Color.White)
+                    .clickable(enabled = !session.busy) { session.shoot() },
+            )
+            if (session.pages.isNotEmpty()) {
+                FilledTonalButton(onClick = onFinish, enabled = !session.busy) { Text("Готово") }
+            } else {
+                Spacer(Modifier.width(64.dp))
+            }
         }
     }
 }
@@ -484,6 +548,14 @@ private fun ReviewCard(session: CaptureSession, onFinish: () -> Unit) {
                     }
                     Button(onClick = { session.endCountdown() }, modifier = Modifier.weight(1f)) { Text("Сейчас") }
                 } else {
+                    val preset = session.preset
+                    if (preset.perSheet > 1 && session.pages.size % preset.perSheet != 0) {
+                        OutlinedButton(
+                            onClick = { session.shootNextSide() },
+                            enabled = !session.busy,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Снять оборот") }
+                    }
                     Button(onClick = onFinish, enabled = !session.busy, modifier = Modifier.weight(1f)) { Text("Готово") }
                 }
             }

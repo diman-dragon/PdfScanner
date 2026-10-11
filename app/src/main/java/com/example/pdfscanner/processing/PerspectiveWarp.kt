@@ -52,7 +52,7 @@ object PerspectiveWarp {
     }
 
     /** Вырезает документ по четырём углам (нормализованные координаты) и выпрямляет его в прямоугольник. */
-    fun warp(src: Bitmap, quad: List<Pt>, maxSide: Int = 3000): Bitmap {
+    fun warp(src: Bitmap, quad: List<Pt>, maxSide: Int = 3000, aspect: Float? = null): Bitmap {
         val w = src.width.toFloat()
         val h = src.height.toFloat()
         val p = quad.map { Pt(it.x * w, it.y * h) }
@@ -63,6 +63,17 @@ object PerspectiveWarp {
         var outW = max(top, bottom)
         var outH = max(left, right)
         if (outW < 8f || outH < 8f) return src.copy(Bitmap.Config.ARGB_8888, false)
+        if (aspect != null) {
+            // Строгая пропорция пресета (карта, паспорт, визитка). Ориентация как у найденного четырёхугольника.
+            val longSide = max(outW, outH)
+            if (outW >= outH) {
+                outW = longSide
+                outH = longSide / aspect
+            } else {
+                outH = longSide
+                outW = longSide / aspect
+            }
+        }
         val k = min(1f, maxSide / max(outW, outH))
         outW *= k
         outH *= k

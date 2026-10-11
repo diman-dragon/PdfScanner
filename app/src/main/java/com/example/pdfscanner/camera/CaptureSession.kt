@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import com.example.pdfscanner.data.BorderMode
 import com.example.pdfscanner.processing.DocumentDetector
 import com.example.pdfscanner.processing.PerspectiveWarp
+import com.example.pdfscanner.processing.ScanPreset
 import com.example.pdfscanner.processing.Pt
 import com.example.pdfscanner.processing.fullQuad
 import com.example.pdfscanner.processing.insetQuad
@@ -55,7 +56,8 @@ class CaptureSession(
     val batch: Boolean,
     borderMode: BorderMode,
     val delaySeconds: Int,
-    val autoCapture: Boolean,
+    autoCapture: Boolean,
+    preset: ScanPreset,
 ) {
     enum class Phase { AIMING, COUNTDOWN, REVIEW, EDIT }
 
@@ -78,6 +80,14 @@ class CaptureSession(
         private set
     var manualQuad by mutableStateOf<List<Pt>?>(null)
         private set
+
+    /** Тип документа. Менять можно, пока не снято ни одной страницы. */
+    var preset by mutableStateOf(preset)
+        private set
+
+    /** Автоснимок возможен только в пакетном режиме. В одиночном снимок всегда по кнопке. */
+    var autoCapture by mutableStateOf(autoCapture && batch)
+        private set
     var busy by mutableStateOf(false)
         private set
     val pages = mutableStateListOf<CapturedPage>()
@@ -97,6 +107,34 @@ class CaptureSession(
     private var sceneChanged = false
     private var lastQuad: List<Pt>? = null
     private var stableCount = 0
+
+    fun changePreset(value: ScanPreset) {
+        if (pages.isNotEmpty() || value == preset) return
+        preset = value
+        resetStability()
+        manualQuad = null
+        liveQuad = null
+    }
+
+    /** Снять следующую сторону (оборот карты, вторая страница паспорта) в тот же документ. */
+    fun shootNextSide() {
+        if (phase != Phase.REVIEW) return
+        needChange = false
+        refGray = null
+        resetStability()
+        phase = Phase.AIMING
+    }
+
+    fun changeAutoCapture(enabled: Boolean) {
+        if (!batch) return
+        autoCapture = enabled
+        resetStability()
+        needChange = false
+        if (!enabled && phase == Phase.COUNTDOWN) {
+            countdown = null
+            phase = Phase.AIMING
+        }
+    }
 
     fun changeBorderMode(mode: BorderMode) {
         borderMode = mode
@@ -136,7 +174,7 @@ class CaptureSession(
             if (current == Phase.COUNTDOWN) return
 
             val quad = if (borderMode == BorderMode.AUTO) {
-                DocumentDetector.detect(gray.pix, gray.w, gray.h)
+                DocumentDetector.detect(gray.pix, gray.w, gray.h, preset.minFraction, preset.aspect)
             } else {
                 manualQuad
             }
@@ -151,9 +189,13 @@ class CaptureSession(
                 }
                 lastQuad = quad
             } else {
-                stableCount = if (diff < STILL_THRESHOLD) stableCount + 1 else 0
+                // «Свои границы»: камера неподвижна и документ (если его удалось найти) лежит в рамке.
+                val fixed = manualQuad
+                val found = if (fixed != null) DocumentDetector.detect(gray.pix, gray.w, gray.h, preset.minFraction, preset.aspect) else null
+                val aligned = fixed == null || found == null || maxCornerDistance(found, fixed) < ALIGN_DISTANCE
+                stableCount = if (diff < STILL_THRESHOLD && aligned) stableCount + 1 else 0
             }
-            progress = min(1f, stableCount.toFloat() / STABLE_FRAMES)
+            progress = if (autoCapture) min(1f, stableCount.toFloat() / STABLE_FRAMES) else 0f
 
             val allowed = !needChange || sceneChanged
             if (autoCapture && allowed && stableCount >= STABLE_FRAMES) {
@@ -240,7 +282,7 @@ class CaptureSession(
     }
 
     private fun buildPage(key: Long, rawFile: File, raw: Bitmap, quad: List<Pt>): CapturedPage {
-        val warped = PerspectiveWarp.warp(raw, quad)
+        val warped = PerspectiveWarp.warp(raw, quad, aspect = preset.aspect)
         val pageFile = File(dir, "page_%05d.jpg".format(key))
         pageFile.outputStream().use { warped.compress(Bitmap.CompressFormat.JPEG, 92, it) }
         val tw = 360
@@ -261,7 +303,7 @@ class CaptureSession(
             val p = pixels[it]
             ((((p shr 16) and 255) * 77 + ((p shr 8) and 255) * 150 + (p and 255) * 29) shr 8).toByte()
         }
-        return DocumentDetector.detect(gray, w, h)
+        return DocumentDetector.detect(gray, w, h, preset.minFraction, preset.aspect)
     }
 
     private fun onPageReady(page: CapturedPage) {
@@ -273,10 +315,16 @@ class CaptureSession(
         shooting = false
         busy = false
         refGray = prevGray
-        needChange = true
+        needChange = autoCapture
         sceneChanged = false
         resetStability()
-        phase = if (batch) Phase.COUNTDOWN else Phase.REVIEW
+        // Одиночный режим: проверка снимка. Пакет с автоснимком: пауза и отсчёт.
+        // Пакет без автоснимка: сразу готовы к следующему кадру (кнопка затвора).
+        phase = when {
+            !batch -> Phase.REVIEW
+            autoCapture -> Phase.COUNTDOWN
+            else -> Phase.AIMING
+        }
     }
 
     // ---------------------------------------------------------------- пауза между страницами
@@ -369,6 +417,7 @@ class CaptureSession(
         const val STILL_THRESHOLD = 2.5f
         const val CHANGE_THRESHOLD = 10f
         const val QUAD_STABLE_DISTANCE = 0.035f
+        const val ALIGN_DISTANCE = 0.07f
         const val RAW_MAX_SIDE = 3600
     }
 }

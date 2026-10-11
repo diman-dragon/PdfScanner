@@ -13,6 +13,7 @@ import com.example.pdfscanner.data.Progress
 import com.example.pdfscanner.data.SettingsRepository
 import com.example.pdfscanner.data.ThemeMode
 import com.example.pdfscanner.processing.FilterMode
+import com.example.pdfscanner.processing.ScanPreset
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -40,7 +41,6 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
         repo.documents.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val themeMode: StateFlow<ThemeMode> = settings.themeMode
-    val dynamicColor: StateFlow<Boolean> = settings.dynamicColor
     val exportFolder: StateFlow<String?> = settings.exportFolder
     val filter: StateFlow<FilterMode> = settings.filter
     val ocrEnabled: StateFlow<Boolean> = settings.ocrEnabled
@@ -48,6 +48,7 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     val batchDelay: StateFlow<Int> = settings.batchDelay
     val borderMode: StateFlow<BorderMode> = settings.borderMode
     val autoCapture: StateFlow<Boolean> = settings.autoCapture
+    val preset: StateFlow<ScanPreset> = settings.preset
 
     /** Языки, для которых в приложение вложены модели (файлы .traineddata в assets/tessdata). */
     val availableOcrLanguages: List<String> = runCatching {
@@ -96,7 +97,7 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
      * Страницы из камеры (папка с page_*.jpg): создаём новый документ или, если задан appendId,
      * дописываем страницы в существующий.
      */
-    fun importCaptured(dir: File, appendId: String?) {
+    fun importCaptured(dir: File, appendId: String?, preset: ScanPreset) {
         val files = dir.listFiles { f ->
             f.isFile && f.name.startsWith("page_") && f.extension.equals("jpg", ignoreCase = true)
         }?.sortedBy { it.name }.orEmpty()
@@ -110,8 +111,9 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
                 if (appendId == null) {
                     val doc = repo.importScan(
                         files.map { Uri.fromFile(it) },
-                        settings.filter.value,
+                        preset.forcedFilter ?: settings.filter.value,
                         ocrLanguagesOrNull(),
+                        preset,
                     ) { _progress.value = it }
                     _events.send(UiEvent.Opened(doc.id))
                 } else {
@@ -144,7 +146,7 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _progress.value = Progress("Подготовка…", null)
             try {
-                val doc = repo.importScan(uris, settings.filter.value, ocrLanguagesOrNull()) { _progress.value = it }
+                val doc = repo.importScan(uris, settings.filter.value, ocrLanguagesOrNull(), ScanPreset.DOCUMENT) { _progress.value = it }
                 _events.send(UiEvent.Opened(doc.id))
             } catch (e: Throwable) {
                 if (e is CancellationException) throw e
@@ -248,11 +250,11 @@ class MainViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun setThemeMode(mode: ThemeMode) = settings.setThemeMode(mode)
-    fun setDynamicColor(enabled: Boolean) = settings.setDynamicColor(enabled)
     fun setFilter(mode: FilterMode) = settings.setFilter(mode)
     fun setOcrEnabled(enabled: Boolean) = settings.setOcrEnabled(enabled)
     fun setBatchDelay(seconds: Int) = settings.setBatchDelay(seconds)
     fun setBorderMode(mode: BorderMode) = settings.setBorderMode(mode)
+    fun setPreset(value: ScanPreset) = settings.setPreset(value)
     fun setAutoCapture(enabled: Boolean) = settings.setAutoCapture(enabled)
     fun setOcrLanguages(codes: Set<String>) {
         if (codes.isNotEmpty()) settings.setOcrLangs(codes.sorted().joinToString("+"))

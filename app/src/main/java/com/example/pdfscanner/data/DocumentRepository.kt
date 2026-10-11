@@ -8,6 +8,7 @@ import com.example.pdfscanner.processing.FilterMode
 import com.example.pdfscanner.processing.ImageEnhancer
 import com.example.pdfscanner.processing.OcrEngine
 import com.example.pdfscanner.processing.PdfComposer
+import com.example.pdfscanner.processing.ScanPreset
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.multipdf.PDFMergerUtility
@@ -52,6 +53,7 @@ class DocumentRepository(
         pages: List<Uri>,
         filter: FilterMode,
         languages: String?,
+        preset: ScanPreset,
         onProgress: (Progress) -> Unit,
     ): DocumentEntity {
         val id = UUID.randomUUID().toString()
@@ -62,10 +64,10 @@ class DocumentRepository(
             withContext(Dispatchers.IO) {
                 pages.forEachIndexed { i, uri -> copy(uri, File(origDir, "page_%03d.jpg".format(i))) }
             }
-            val built = build(origDir, id, filter, languages, pdf, onProgress)
+            val built = build(origDir, id, filter, languages, pdf, preset, onProgress)
             val doc = DocumentEntity(
                 id = id,
-                name = "Скан " + SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date(now)),
+                name = preset.docName + " " + SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date(now)),
                 createdAt = now,
                 pageCount = built.pageCount,
                 sizeBytes = pdf.length(),
@@ -75,6 +77,7 @@ class DocumentRepository(
                 hasText = built.hasText,
                 filterMode = filter.name,
                 ocrText = built.text.ifBlank { null },
+                preset = preset.name,
             )
             dao.insert(doc)
             return doc
@@ -106,7 +109,7 @@ class DocumentRepository(
             ?: throw IllegalStateException("Исходные страницы этого документа недоступны")
         val tmp = File(dir("pdfs"), "${doc.id}.tmp")
         try {
-            val built = build(sourceDir, doc.id, filter, languages, tmp, onProgress)
+            val built = build(sourceDir, doc.id, filter, languages, tmp, ScanPreset.fromName(doc.preset), onProgress)
             val target = File(doc.pdfPath)
             withContext(Dispatchers.IO) {
                 if (!tmp.renameTo(target)) {
@@ -189,6 +192,7 @@ class DocumentRepository(
         filter: FilterMode,
         languages: String?,
         pdfTarget: File,
+        preset: ScanPreset,
         onProgress: (Progress) -> Unit,
     ): Built = withContext(Dispatchers.Default) {
         val originals = origDir.listFiles { f -> f.extension.equals("jpg", ignoreCase = true) }
@@ -229,7 +233,7 @@ class DocumentRepository(
             }
             onProgress(Progress("Сборка PDF…", null))
             val withText = pages.any { it.text?.words?.isNotEmpty() == true }
-            PdfComposer(context).compose(pages, pdfTarget, withText)
+            PdfComposer(context).compose(pages, pdfTarget, withText, preset)
             Built(
                 thumb = thumbFile.takeIf { it.exists() },
                 pageCount = pages.size,

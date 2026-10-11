@@ -4,7 +4,6 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -83,7 +82,7 @@ fun SettingsScreen(
             )
             HubCard(
                 title = "Настройки сканирования",
-                summary = "Пакет: каждые $batchDelay с · ${filter.title()} · " +
+                summary = "Пауза $batchDelay с · ${filter.title()} · " +
                     if (ocrEnabled) {
                         "текст: " + ocrLangs.split("+").joinToString(", ") { ocrLanguageName(it) }
                     } else {
@@ -131,7 +130,6 @@ private fun HubCard(title: String, summary: String, onClick: () -> Unit) {
 fun AppSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
     val theme by vm.themeMode.collectAsStateWithLifecycle()
-    val dynamic by vm.dynamicColor.collectAsStateWithLifecycle()
     val folder by vm.exportFolder.collectAsStateWithLifecycle()
     val privacyUrl = stringResource(R.string.privacy_policy_url)
     val version = remember { appVersion(context) }
@@ -142,16 +140,14 @@ fun AppSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
 
     SettingsScaffold(title = "Настройки приложения", onBack = onBack) {
         SectionTitle("Оформление")
-        ThemeOption("Как в системе", theme == ThemeMode.SYSTEM) { vm.setThemeMode(ThemeMode.SYSTEM) }
-        ThemeOption("Светлая", theme == ThemeMode.LIGHT) { vm.setThemeMode(ThemeMode.LIGHT) }
-        ThemeOption("Тёмная", theme == ThemeMode.DARK) { vm.setThemeMode(ThemeMode.DARK) }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ListItem(
-                headlineContent = { Text("Цвета из обоев") },
-                supportingContent = { Text("Приложение подстраивается под цвета системы") },
-                trailingContent = { Switch(checked = dynamic, onCheckedChange = null) },
-                modifier = Modifier.clickable { vm.setDynamicColor(!dynamic) },
-            )
+        ThemeOption("Как в системе", "Днём светло-коричневая, ночью AMOLED", theme == ThemeMode.SYSTEM) {
+            vm.setThemeMode(ThemeMode.SYSTEM)
+        }
+        ThemeOption("Светло-коричневая", "Под бумагу: тёплая крафтовая бумага и чернильно-коричневый текст", theme == ThemeMode.LIGHT) {
+            vm.setThemeMode(ThemeMode.LIGHT)
+        }
+        ThemeOption("AMOLED", "Чисто чёрный фон: экономит заряд на OLED-экранах", theme == ThemeMode.AMOLED) {
+            vm.setThemeMode(ThemeMode.AMOLED)
         }
 
         SectionTitle("Сохранение")
@@ -209,8 +205,13 @@ fun ScanSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     SettingsScaffold(title = "Настройки сканирования", onBack = onBack) {
         SectionTitle("Камера")
         ListItem(
-            headlineContent = { Text("Снимать без кнопки") },
-            supportingContent = { Text("Камера сама снимает, когда документ в кадре стоит неподвижно") },
+            headlineContent = { Text("Автоснимок в пакетном режиме") },
+            supportingContent = {
+                Text(
+                    "Выключен: всегда снимаете кнопкой. Включён: в пакете камера сама снимает следующую " +
+                        "страницу после паузы, когда документ неподвижен. Одиночный скан всегда по кнопке",
+                )
+            },
             trailingContent = { Switch(checked = autoCapture, onCheckedChange = null) },
             modifier = Modifier.clickable { vm.setAutoCapture(!autoCapture) },
         )
@@ -222,20 +223,21 @@ fun ScanSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
         )
         ListItem(
             headlineContent = { Text("Свои границы") },
-            supportingContent = { Text("Выставляете углы один раз на первом снимке, дальше они применяются ко всем страницам") },
+            supportingContent = {
+                Text("Один раз выставляете рамку на первом снимке, дальше подводите камеру так, чтобы документ попал в неё")
+            },
             leadingContent = { RadioButton(selected = borderMode == BorderMode.MANUAL, onClick = null) },
             modifier = Modifier.clickable { vm.setBorderMode(BorderMode.MANUAL) },
         )
 
-        SectionTitle("Пауза в пакетном режиме")
+        SectionTitle("Пауза при автоснимке")
         ListItem(
             headlineContent = { Text("Следующая страница через") },
             supportingContent = {
                 Column {
                     Text(
-                        "$batchDelay с. Режим выбирается кнопкой «Сканировать»: " +
-                            "в одиночном режиме всегда одна страница, в пакетном камера ждёт эту паузу, " +
-                            "пока вы переворачиваете лист",
+                        "$batchDelay с. Нужна при автоснимке: за это время вы переворачиваете лист, " +
+                            "затем камера снимает следующую страницу",
                     )
                     Slider(
                         value = batchDelay.toFloat(),
@@ -320,9 +322,10 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun ThemeOption(title: String, selected: Boolean, onSelect: () -> Unit) {
+private fun ThemeOption(title: String, subtitle: String, selected: Boolean, onSelect: () -> Unit) {
     ListItem(
         headlineContent = { Text(title) },
+        supportingContent = { Text(subtitle) },
         leadingContent = { RadioButton(selected = selected, onClick = null) },
         modifier = Modifier.clickable(onClick = onSelect),
     )
@@ -330,8 +333,8 @@ private fun ThemeOption(title: String, selected: Boolean, onSelect: () -> Unit) 
 
 private fun ThemeMode.title(): String = when (this) {
     ThemeMode.SYSTEM -> "как в системе"
-    ThemeMode.LIGHT -> "светлая"
-    ThemeMode.DARK -> "тёмная"
+    ThemeMode.LIGHT -> "светло-коричневая"
+    ThemeMode.AMOLED -> "AMOLED"
 }
 
 private fun appVersion(context: Context): Pair<String, Long> = runCatching {

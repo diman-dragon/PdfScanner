@@ -21,11 +21,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             val vm: MainViewModel = viewModel()
             val mode by vm.themeMode.collectAsStateWithLifecycle()
-            val dynamic by vm.dynamicColor.collectAsStateWithLifecycle()
             val dark = when (mode) {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
                 ThemeMode.LIGHT -> false
-                ThemeMode.DARK -> true
+                ThemeMode.AMOLED -> true
             }
 
             // Иконки статус-бара и навигации следуют теме приложения, а не системной.
@@ -40,7 +39,7 @@ class MainActivity : ComponentActivity() {
                 onDispose { }
             }
 
-            PdfScannerTheme(dark = dark, dynamicColor = dynamic) {
+            PdfScannerTheme(amoled = dark) {
                 App(vm)
             }
         }
